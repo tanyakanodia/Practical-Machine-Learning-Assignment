@@ -1,0 +1,158 @@
+---
+title: "Predict activity quality from activity monitors"
+author: "Tanya"
+date: "07/02/2021"
+output: 
+html_document : 
+keep_md: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Synopsis
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+
+The goal of this project is to predict the manner in which they did the exercise. This is the `classe` variable in the training set.
+
+## Data description
+
+The outcome variable is `classe`, a factor variable with 5 levels. For this data set, participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in 5 different fashions:
+
+- exactly according to the specification (Class A)
+- throwing the elbows to the front (Class B)
+- lifting the dumbbell only halfway (Class C)
+- lowering the dumbbell only halfway (Class D)
+- throwing the hips to the front (Class E)
+
+## Initial configuration
+
+The initial configuration consists of loading some required packages and initializing some variables.
+
+
+```{r configuration, results='hide'}
+#Data variables
+training.file   <- './data/pml-training.csv'
+test.file <- './data/pml-testing.csv'
+training.url    <- 'http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv'
+test.url  <- 'http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv'
+
+#Directories
+if (!file.exists("data")){
+  dir.create("data")
+}
+
+library("caret")
+library("randomForest")
+library("rpart")
+library("rpart.plot")
+
+```
+
+
+## Data prepration
+In this section the data is downloaded and processed. Some basic transformations and cleanup will be performed, so that `NA` values are omitted. Irrelevant columns such as `user_name`, `raw_timestamp_part_1`, `raw_timestamp_part_2`, `cvtd_timestamp`, `new_window`, and  `num_window` (columns 1 to 7) will be removed in the subset.
+
+The `pml-training.csv` data is used to devise training and testing sets.
+The `pml-test.csv` data is used to predict and answer the 20 questions based on the trained model.
+
+```{r , echo=TRUE, results='hide'}
+# Download data
+download.file(training.url, training.file)
+download.file(test.url,test.file )
+
+```
+
+# Clean data
+```{r}
+training<-read.csv(training.file, na.strings=c("NA","#DIV/0!", ""))
+testing <-read.csv(test.file , na.strings=c("NA", "#DIV/0!", ""))
+
+```
+A: Removing Variables which are having nearly zero variance.
+```{r}
+non_zero_var <- nearZeroVar(training)
+
+training <- training[,-non_zero_var]
+testing<- testing[,-non_zero_var]
+
+dim(training)
+```
+B: Removing Variables which are having NA values. Our threshhold is 95%.
+```{r}
+na_val_col <- sapply(training, function(x) mean(is.na(x))) > 0.95
+
+training <- training[,na_val_col == FALSE]
+testing <- testing[,na_val_col == FALSE]
+
+dim(training)
+```
+C: We also remove col1 to col7 because they are not related to the model
+```{r}
+training   <-training[,-c(1:7)]
+testing <-testing[,-c(1:7)]
+```
+## Data Partitioning
+As per recommendation of the course __ Practical Machine Learning__ , we will be segregating our org_training_data into 2 different parts, one is the training set (consisting 75% of the total data) and validation set (consisting 25% of the total data)
+```{r}
+subSamples <- createDataPartition(y=training$classe, p=0.75, list=FALSE)
+subTraining <- training[subSamples, ] 
+subValidating <- training[-subSamples, ]
+```
+
+## Exploratory analysis
+The variable `classe` contains 5 levels. The plot of the outcome variable shows the frequency of each levels in the subTraining data.
+
+```{r exploranalysis, echo=TRUE}
+barplot(table(subTraining$classe), col="orange", main="Levels of the variable classe", xlab="classe levels", ylab="Frequency")
+```
+The plot above shows that Level A is the most frequent classe. D appears to be the least frequent one.
+
+## Prediction models
+In this section a decision tree and random forest will be applied to the data.
+
+### Decision tree
+```{r decisiontree, echo=TRUE}
+# Fit model
+modFitDT <- train(classe ~ ., data = subTraining, method="rpart")
+# Perform prediction
+predictDT <- predict(modFitDT, subValidating)
+# Plot result
+rpart.plot(modFitDT$finalModel, main="Classification Tree", roundint=FALSE)
+```
+
+Following confusion matrix shows the errors of the prediction algorithm.
+
+```{r decisiontreecm, echo=TRUE}
+confusionMatrix(predictDT, as.factor(subValidating$classe))
+```
+We can see that the prediction accuracy is 50% which is not upto the desired level.
+
+### Random forest
+```{r randomforest, echo=TRUE}
+# Fit model
+modFitRF <- randomForest(as.factor(classe) ~ ., data=subTraining, method="class")
+# Perform prediction
+predictRF <- predict(modFitRF, subValidating, type = "class")
+# Fit model
+#modFitRF <- train(classe ~ ., data = subTraining, method = "rf", ntree=100)
+# Perform prediction
+#predictRF <- predict(modFitRF, subValidating)
+```
+
+Following confusion matrix shows the errors of the prediction algorithm.
+
+```{r}
+confusionMatrix(predictRF, as.factor(subValidating$classe))
+```
+From the Confusion Matrix, we can clearly see that the prediction accuracy of Random Forest model is 99% which is satisfactory.
+
+## Prediction
+Now we use it to predict the test set
+```{r}
+predict(modFitRF, testing)
+```
+## Conclusion
+As we can we from the result, the random forest algorithem far outperforms the decision tree in terms of accuracy. We are getting 99.25% in sample accuracy, while the decision tree gives us only nearly 50% in sample accuracy
